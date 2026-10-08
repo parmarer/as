@@ -79,22 +79,20 @@ const tx = f.items.filter((i) => i.type === 'TEXT');
 const lists = f.items.filter((i) => i.type === 'LIST');
 assert.strictEqual(mc.length, 24, 'MCQ count');
 
-// ---- student information block (5 text fields + 1 dropdown) ----
-const studentTitles = ['ชื่อ-สกุล', 'เลขประจำตัว', 'คณะ/วิทยาลัย', 'สาขาวิชา', 'ชั้นปี', 'กลุ่มเรียน (Section)'];
+// ---- student information block (3 text fields) ----
+const studentTitles = ['ชื่อ-สกุล', 'เลขประจำตัว', 'สาขาวิชา'];
 const studentItems = f.items.slice(f.items.findIndex((i) => i._setTitle === 'ข้อมูลผู้เข้าสอบ') + 1,
   f.items.findIndex((i) => i._setTitle === 'ข้อมูลผู้เข้าสอบ') + 1 + studentTitles.length);
 assert.strictEqual(JSON.stringify(studentItems.map((i) => i._setTitle)), JSON.stringify(studentTitles));
 assert.strictEqual(f.items[0]._setTitle, 'ข้อมูลผู้เข้าสอบ', 'student block comes first');
 assert.strictEqual(JSON.stringify(studentItems.map((i) => i._setRequired)),
-  JSON.stringify([true, true, true, true, true, false]));
-assert.strictEqual(lists.length, 1);
-assert.strictEqual(lists[0]._setTitle, 'ชั้นปี');
-assert.strictEqual(lists[0]._setChoiceValues.length, 5);
+  JSON.stringify([true, true, true]));
+assert.strictEqual(lists.length, 0, 'no dropdown by default');
 const idItem = studentItems[1];
 assert.strictEqual(idItem._setValidation.pattern, '[0-9]{5,15}');
 assert.ok(new RegExp('^(?:' + idItem._setValidation.pattern + ')$').test('6612345678'));
 assert.ok(!new RegExp('^(?:' + idItem._setValidation.pattern + ')$').test('66-1234'));
-assert.strictEqual(tx.length, 5 + 3, '5 student text fields + 3 short answers');
+assert.strictEqual(tx.length, 3 + 3, '3 student text fields + 3 short answers');
 
 let total = 0;
 mc.forEach((it, i) => {
@@ -110,7 +108,7 @@ mc.forEach((it, i) => {
   assert.strictEqual(it._setFeedbackForCorrect, undefined, 'feedback off by default');
   total += it._setPoints;
 });
-const shortItems = tx.slice(5);
+const shortItems = tx.slice(3);
 shortItems.forEach((it, j) => {
   assert.strictEqual(it._setPoints, 2);
   assert.ok(it._setValidation.number);
@@ -126,6 +124,15 @@ vm.runInContext('CONFIG.ADD_STUDENT_INFO = false; createMakeupExamForm(); CONFIG
 assert.ok(!lastForm.items.some((i) => i._setTitle === 'ข้อมูลผู้เข้าสอบ'), 'student block off');
 assert.strictEqual(lastForm.items.filter((i) => i.type === 'MC').length, 24);
 lastForm = f; // restore first form for grading test below
+
+// ---- optional dropdown: giving the major a choices list turns it into a list item ----
+vm.runInContext("STUDENT_FIELDS[2].choices = ['สาขา ก', 'สาขา ข']; createMakeupExamForm(); STUDENT_FIELDS[2].choices = [];", context);
+const dd = lastForm.items.filter((i) => i.type === 'LIST');
+assert.strictEqual(dd.length, 1);
+assert.strictEqual(dd[0]._setTitle, 'สาขาวิชา');
+assert.strictEqual(dd[0]._setChoiceValues.length, 2);
+assert.strictEqual(dd[0]._setRequired, true);
+lastForm = f;
 
 // ---- 2) validation guard ----
 assert.throws(() => {
