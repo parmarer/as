@@ -23,7 +23,7 @@ function chain(target, setters) {
 
 function makeItem(type) {
   const item = chain({ type }, ['setTitle', 'setHelpText', 'setRequired', 'setPoints',
-    'setValidation', 'setFeedbackForCorrect', 'setFeedbackForIncorrect', 'setChoices']);
+    'setValidation', 'setFeedbackForCorrect', 'setFeedbackForIncorrect', 'setChoices', 'setChoiceValues']);
   item.createChoice = (value, correct) => ({ value, correct: !!correct });
   item.getTitle = () => item._setTitle;
   return item;
@@ -33,8 +33,8 @@ function makeForm(title) {
   const form = chain({ title, items: [], responses: [], submitted: null },
     ['setDescription', 'setIsQuiz', 'setShuffleQuestions', 'setProgressBar',
       'setConfirmationMessage', 'setAllowResponseEdits', 'setCollectEmail']);
-  ['addTextItem', 'addMultipleChoiceItem', 'addSectionHeaderItem'].forEach((fn) => {
-    const type = { addTextItem: 'TEXT', addMultipleChoiceItem: 'MC', addSectionHeaderItem: 'HEADER' }[fn];
+  ['addTextItem', 'addMultipleChoiceItem', 'addSectionHeaderItem', 'addListItem'].forEach((fn) => {
+    const type = { addTextItem: 'TEXT', addMultipleChoiceItem: 'MC', addSectionHeaderItem: 'HEADER', addListItem: 'LIST' }[fn];
     form[fn] = () => { const it = makeItem(type); form.items.push(it); return it; };
   });
   form.getId = () => 'FORM123';
@@ -58,7 +58,8 @@ const context = {
     createTextValidation: () => ({
       setHelpText(t) { this.h = t; return this; },
       requireNumber() { this.n = true; return this; },
-      build() { return { helpText: this.h, number: this.n }; },
+      requireTextMatchesPattern(p) { this.p = p; return this; },
+      build() { return { helpText: this.h, number: this.n, pattern: this.p }; },
     }),
   },
 };
@@ -75,10 +76,25 @@ assert.strictEqual(props.FORM_ID, 'FORM123');
 
 const mc = f.items.filter((i) => i.type === 'MC');
 const tx = f.items.filter((i) => i.type === 'TEXT');
+const lists = f.items.filter((i) => i.type === 'LIST');
 assert.strictEqual(mc.length, 24, 'MCQ count');
-assert.strictEqual(tx.length, 2 + 3, 'name + id + 3 short answers');
-assert.strictEqual(tx[0]._setTitle, 'ชื่อ-สกุล');
-assert.strictEqual(tx[0]._setRequired, true);
+
+// ---- student information block (5 text fields + 1 dropdown) ----
+const studentTitles = ['ชื่อ-สกุล', 'เลขประจำตัว', 'คณะ/วิทยาลัย', 'สาขาวิชา', 'ชั้นปี', 'กลุ่มเรียน (Section)'];
+const studentItems = f.items.slice(f.items.findIndex((i) => i._setTitle === 'ข้อมูลผู้เข้าสอบ') + 1,
+  f.items.findIndex((i) => i._setTitle === 'ข้อมูลผู้เข้าสอบ') + 1 + studentTitles.length);
+assert.strictEqual(JSON.stringify(studentItems.map((i) => i._setTitle)), JSON.stringify(studentTitles));
+assert.strictEqual(f.items[0]._setTitle, 'ข้อมูลผู้เข้าสอบ', 'student block comes first');
+assert.strictEqual(JSON.stringify(studentItems.map((i) => i._setRequired)),
+  JSON.stringify([true, true, true, true, true, false]));
+assert.strictEqual(lists.length, 1);
+assert.strictEqual(lists[0]._setTitle, 'ชั้นปี');
+assert.strictEqual(lists[0]._setChoiceValues.length, 5);
+const idItem = studentItems[1];
+assert.strictEqual(idItem._setValidation.pattern, '[0-9]{5,15}');
+assert.ok(new RegExp('^(?:' + idItem._setValidation.pattern + ')$').test('6612345678'));
+assert.ok(!new RegExp('^(?:' + idItem._setValidation.pattern + ')$').test('66-1234'));
+assert.strictEqual(tx.length, 5 + 3, '5 student text fields + 3 short answers');
 
 let total = 0;
 mc.forEach((it, i) => {
@@ -94,7 +110,7 @@ mc.forEach((it, i) => {
   assert.strictEqual(it._setFeedbackForCorrect, undefined, 'feedback off by default');
   total += it._setPoints;
 });
-const shortItems = tx.slice(2);
+const shortItems = tx.slice(5);
 shortItems.forEach((it, j) => {
   assert.strictEqual(it._setPoints, 2);
   assert.ok(it._setValidation.number);
@@ -103,7 +119,13 @@ shortItems.forEach((it, j) => {
 assert.strictEqual(total, 30, 'total points');
 
 const headers = f.items.filter((i) => i.type === 'HEADER').map((i) => i._setTitle);
-assert.strictEqual(headers.length, 2 + 6, 'two parts + six topic headers');
+assert.strictEqual(headers.length, 1 + 2 + 6, 'student + two parts + six topic headers');
+
+// ---- config toggle: student block can be switched off ----
+vm.runInContext('CONFIG.ADD_STUDENT_INFO = false; createMakeupExamForm(); CONFIG.ADD_STUDENT_INFO = true;', context);
+assert.ok(!lastForm.items.some((i) => i._setTitle === 'ข้อมูลผู้เข้าสอบ'), 'student block off');
+assert.strictEqual(lastForm.items.filter((i) => i.type === 'MC').length, 24);
+lastForm = f; // restore first form for grading test below
 
 // ---- 2) validation guard ----
 assert.throws(() => {
